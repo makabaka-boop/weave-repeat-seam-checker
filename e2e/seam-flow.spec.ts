@@ -78,4 +78,54 @@ test.describe('提花接缝校验台', () => {
     await page.getByTestId('apply-custom-hex').click();
     await expect(page.getByTestId('custom-error')).toBeVisible();
   });
+
+  test('极端比例 24×2 与 2×24：九块纹样完整落在画布内', async ({ page }) => {
+    // 采样画布中心某一坐标的像素，断言其颜色接近指定色值。
+    const samplePixel = (p: typeof page, xRatio: number, yRatio: number) =>
+      p.evaluate(
+        ({ xRatio, yRatio }) => {
+          const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="seam-canvas"]')!;
+          const ctx = canvas.getContext('2d')!;
+          const x = Math.floor(canvas.width * xRatio);
+          const y = Math.floor(canvas.height * yRatio);
+          const { data } = ctx.getImageData(x, y, 1, 1);
+          return { r: data[0], g: data[1], b: data[2] };
+        },
+        { xRatio, yRatio },
+      );
+    const isDark = (px: { r: number; g: number; b: number }) => px.r < 60 && px.g < 60 && px.b < 60;
+
+    // 选深色画笔（#111827）
+    await page.getByTestId('palette').getByRole('button', { name: /111827/ }).click();
+
+    // 24 行 × 2 列：高度受限，最底部一行的中心必须是已涂色（修复前画到了画布外）
+    await page.getByTestId('rows-input').fill('24');
+    await page.getByTestId('cols-input').fill('2');
+    await page.getByTestId('apply-dimensions').click();
+    let empty = await page.locator('[data-testid="cell"][data-empty="true"]').count();
+    while (empty > 0) {
+      await page.locator('[data-testid="cell"][data-empty="true"]').first().click();
+      empty -= 1;
+    }
+    await expect(page.getByTestId('conclusion')).toHaveAttribute('data-status', 'pass');
+    // 布局：cell = 1/72 画布，内容水平居中（offset 33/72），取左列中心避开网格线。
+    // 末行（第九块底边）与首行（顶边）的中心像素都必须是已涂色。
+    expect(isDark(await samplePixel(page, 33.5 / 72, 71.5 / 72))).toBe(true);
+    expect(isDark(await samplePixel(page, 33.5 / 72, 0.5 / 72))).toBe(true);
+
+    // 2 行 × 24 列：宽度受限，最右一列的中心必须是已涂色
+    await page.getByTestId('rows-input').fill('2');
+    await page.getByTestId('cols-input').fill('24');
+    await page.getByTestId('apply-dimensions').click();
+    empty = await page.locator('[data-testid="cell"][data-empty="true"]').count();
+    while (empty > 0) {
+      await page.locator('[data-testid="cell"][data-empty="true"]').first().click();
+      empty -= 1;
+    }
+    await expect(page.getByTestId('conclusion')).toHaveAttribute('data-status', 'pass');
+    // 布局：cell = 1/72 画布，内容垂直居中（offset 33/72），取顶行中心避开网格线。
+    // 最右列（第九块右边）与最左列的中心像素都必须是已涂色。
+    expect(isDark(await samplePixel(page, 71.5 / 72, 33.5 / 72))).toBe(true);
+    expect(isDark(await samplePixel(page, 0.5 / 72, 33.5 / 72))).toBe(true);
+  });
 });

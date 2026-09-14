@@ -32,13 +32,19 @@ export function SeamCanvas({ grid, mismatches, located }: SeamCanvasProps) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, cssSize, cssSize);
 
-      const cell = cssSize / (cols * 3);
-      const originX = cell * cols;
-      const originY = cell * rows;
+      // 格子同时受画布宽、高约束（极端比例如 24 行 × 2 列也必须完整露出九块），
+      // 再整体居中。
+      const cell = Math.min(cssSize / (cols * 3), cssSize / (rows * 3));
+      const contentW = cell * cols * 3;
+      const contentH = cell * rows * 3;
+      const offsetX = (cssSize - contentW) / 2;
+      const offsetY = (cssSize - contentH) / 2;
+      const originX = offsetX + cell * cols;
+      const originY = offsetY + cell * rows;
 
       const cellRect = (tileX: number, tileY: number, r: number, c: number) => ({
-        x: (tileX * cols + c) * cell,
-        y: (tileY * rows + r) * cell,
+        x: offsetX + (tileX * cols + c) * cell,
+        y: offsetY + (tileY * rows + r) * cell,
         w: cell,
         h: cell,
       });
@@ -56,21 +62,21 @@ export function SeamCanvas({ grid, mismatches, located }: SeamCanvasProps) {
         }
       }
 
-      // 2. 细网格线。
+      // 2. 细网格线（仅在九块铺展区域内）。
       ctx.strokeStyle = '#C9CDD4';
       ctx.lineWidth = 1;
       for (let i = 0; i <= cols * 3; i += 1) {
-        const x = i * cell + 0.5;
+        const x = offsetX + i * cell + 0.5;
         ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, cssSize);
+        ctx.moveTo(x, offsetY);
+        ctx.lineTo(x, offsetY + contentH);
         ctx.stroke();
       }
       for (let i = 0; i <= rows * 3; i += 1) {
-        const y = i * cell + 0.5;
+        const y = offsetY + i * cell + 0.5;
         ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(cssSize, y);
+        ctx.moveTo(offsetX, y);
+        ctx.lineTo(offsetX + contentW, y);
         ctx.stroke();
       }
 
@@ -100,16 +106,19 @@ export function SeamCanvas({ grid, mismatches, located }: SeamCanvasProps) {
         strong: boolean,
       ) => {
         const rect = cellRect(tileX, tileY, coords.row, coords.col);
-        const radius = Math.max(7, Math.min(cell * 0.28, 12));
+        // 直径不超过格内尺寸，避免在窄格（如 24×2）里溢出。
+        const radius = Math.min(cell * 0.42, 12);
+        const cx = rect.x + radius + 1;
+        const cy = rect.y + radius + 1;
         ctx.beginPath();
-        ctx.arc(rect.x + radius + 2, rect.y + radius + 2, radius, 0, Math.PI * 2);
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.fillStyle = strong ? '#B45309' : '#B91C1C';
         ctx.fill();
         ctx.fillStyle = '#FFFFFF';
-        ctx.font = `bold ${Math.round(radius * 1.15)}px sans-serif`;
+        ctx.font = `bold ${Math.max(5, Math.round(radius * 1.1))}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(label, rect.x + radius + 2, rect.y + radius + 2.5);
+        ctx.fillText(label, cx, cy + 0.5);
       };
 
       // 4. 不匹配成对标记。

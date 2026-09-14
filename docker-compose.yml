@@ -1,0 +1,18 @@
+# 纯浏览器工作台：compose 默认只运行 web，没有任何业务后端。
+services:
+  web:
+    build:
+      context: .
+      target: web
+    image: jacquard-seam-web
+    ports:
+      # 宿主端口可用 WEB_PORT 覆盖：WEB_PORT=9000 docker compose up
+      - "${WEB_PORT:-8080}:80"
+
+  # 一次性验收服务：docker compose --profile verify run --rm verify
+  verify:
+    profiles: ["verify"]
+    build:
+      context: .
+      target: verify
+    image: jacquard-seam-verify

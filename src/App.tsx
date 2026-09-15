@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Coords,
   Grid,
+  HexColor,
   SeamMismatch,
   analyzeSeams,
   createEmptyGrid,
@@ -13,8 +14,10 @@ import {
   MIN_SIZE,
   MAX_SIZE,
 } from './seams';
+import { extractColors, isDraftStale, WeftDraft, weftBlocker } from './weft';
 import { DEFAULT_GRID } from './defaultPattern';
 import { SeamCanvas } from './SeamCanvas';
+import { WeftPanel } from './WeftPanel';
 
 const PALETTE = [
   '1B3A5C',
@@ -48,10 +51,32 @@ export default function App() {
   const [customInput, setCustomInput] = useState('');
   const [customError, setCustomError] = useState<string | null>(null);
   const [located, setLocated] = useState<LocatedKey | null>(null);
+  // 配台草稿：色值 -> 送纬器号。修改任一色格或应用新尺寸即整体清空。
+  const [weftDraft, setWeftDraft] = useState<WeftDraft>({});
 
   // 逐格校验与判定：数据不完整时结论为 null，绝不产生部分判定。
   const { issues, valid } = useMemo(() => validateGrid(grid), [grid]);
   const result = useMemo(() => (valid ? analyzeSeams(grid) : null), [grid, valid]);
+
+  // 配台区派生数据：唯一颜色（首次出现行列序）、阻断原因。
+  const colorEntries = useMemo(() => extractColors(grid), [grid]);
+  const blocker = useMemo(() => weftBlocker(grid), [grid]);
+  // 防御：草稿引用了已消失的颜色（编辑/改尺寸）即视为空草稿。
+  const effectiveDraft = useMemo(
+    () => (isDraftStale(colorEntries, weftDraft) ? {} : weftDraft),
+    [colorEntries, weftDraft],
+  );
+  // Canvas 角标用：可配台时把已分配的色值映射到送纬器号。
+  const weftAssignments = useMemo(() => {
+    const map = new Map<HexColor, number>();
+    if (!blocker) {
+      for (const entry of colorEntries) {
+        const feeder = effectiveDraft[entry.color];
+        if (feeder !== undefined) map.set(entry.color, feeder);
+      }
+    }
+    return map;
+  }, [blocker, colorEntries, effectiveDraft]);
 
   // 尺寸变化或编辑后，已定位项可能消失，清理失效定位。
   const locatedMismatch: SeamMismatch | null = useMemo(() => {
@@ -103,6 +128,7 @@ export default function App() {
       // 尺寸改变：旧网格、预览与结论立即失效，回到空网格。
       setGrid(createEmptyGrid(rows, cols));
       setLocated(null);
+      setWeftDraft({});
     }
   };
 
@@ -112,12 +138,27 @@ export default function App() {
       next[row][col] = activeColor;
       return next;
     });
+    // 任一色格变化：配台草稿与配台单立即失效。
+    setWeftDraft({});
   };
 
   const clearCell = (row: number, col: number) => {
     setGrid((current) => {
       const next = current.map((line) => [...line]);
       next[row][col] = null;
+      return next;
+    });
+    setWeftDraft({});
+  };
+
+  const assignFeeder = (color: HexColor, feeder: number | undefined) => {
+    setWeftDraft((current) => {
+      const next = { ...current };
+      if (feeder === undefined) {
+        delete next[color];
+      } else {
+        next[color] = feeder;
+      }
       return next;
     });
   };
@@ -307,6 +348,7 @@ export default function App() {
               ...(result?.vertical.mismatches ?? []),
             ]}
             located={locatedMismatch ? { axis: locatedMismatch.axis, position: locatedMismatch.position } : null}
+            weftAssignments={weftAssignments}
           />
         </section>
       </div>
@@ -360,6 +402,13 @@ export default function App() {
           </>
         )}
       </section>
+
+      <WeftPanel
+        blocker={blocker}
+        entries={colorEntries}
+        draft={effectiveDraft}
+        onAssign={assignFeeder}
+      />
     </div>
   );
 }

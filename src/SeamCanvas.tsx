@@ -1,18 +1,21 @@
 import { useEffect, useRef } from 'react';
-import { Coords, Grid, SeamMismatch } from './seams';
+import { Coords, Grid, HexColor, SeamMismatch } from './seams';
 
 interface SeamCanvasProps {
   grid: Grid;
   mismatches: SeamMismatch[];
   located: { axis: 'horizontal' | 'vertical'; position: number } | null;
+  /** 色值 -> 送纬器号；仅在中央核心块画角标，不影响既有断纹标记。 */
+  weftAssignments: ReadonlyMap<HexColor, number>;
 }
 
 /**
  * 三乘三循环铺展预览。
  * 中央为核心块，四周 8 块为复制结果；不匹配的接缝在核心块两侧
  * （首/末列或首/末行）成对加红色描边，并在跨块相邻处同步标出。
+ * 已分配送纬器的颜色在核心块色格右上角叠加深色角标。
  */
-export function SeamCanvas({ grid, mismatches, located }: SeamCanvasProps) {
+export function SeamCanvas({ grid, mismatches, located, weftAssignments }: SeamCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const rows = grid.length;
@@ -55,7 +58,8 @@ export function SeamCanvas({ grid, mismatches, located }: SeamCanvasProps) {
           for (let r = 0; r < rows; r += 1) {
             for (let c = 0; c < cols; c += 1) {
               const rect = cellRect(tileX, tileY, r, c);
-              ctx.fillStyle = grid[r][c] ?? '#FFFFFF';
+              // 色值是六位大写十六进制（无 # 前缀），补前缀才是合法 CSS 颜色。
+              ctx.fillStyle = grid[r][c] ? `#${grid[r][c]}` : '#FFFFFF';
               ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
             }
           }
@@ -150,13 +154,41 @@ export function SeamCanvas({ grid, mismatches, located }: SeamCanvasProps) {
           drawBadge(pair.b, 1, 1, label, isLocated);
         }
       });
+      // 5. 送纬器角标：仅中央核心块，画在色格右上角，
+      // 与断纹的红描边、编号（左上角）互不干扰。
+      if (weftAssignments.size > 0) {
+        const radius = Math.min(cell * 0.32, 10);
+        for (let r = 0; r < rows; r += 1) {
+          for (let c = 0; c < cols; c += 1) {
+            const color = grid[r][c];
+            if (color === null) continue;
+            const feeder = weftAssignments.get(color);
+            if (feeder === undefined) continue;
+            const rect = cellRect(1, 1, r, c);
+            const cx = rect.x + rect.w - radius - 1;
+            const cy = rect.y + radius + 1;
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#1F2937';
+            ctx.fill();
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = `bold ${Math.max(5, Math.round(radius * 1.1))}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(String(feeder), cx, cy + 0.5);
+          }
+        }
+      }
     };
 
     draw();
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [grid, rows, cols, mismatches, located]);
+  }, [grid, rows, cols, mismatches, located, weftAssignments]);
 
   return (
     <canvas
